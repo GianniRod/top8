@@ -36,6 +36,10 @@
         /* Animaciones suaves */
         .animate-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Efecto de pulso para el indicador de conexión */
+        .ping { animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite; }
+        @keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
     </style>
 </head>
 <body class="bg-[#F8F9FA] text-[#0F2044] antialiased">
@@ -71,10 +75,10 @@
         import { 
             Trophy, Users, Calendar, Play, Plus, Trash2, Activity, Clock, Crown,
             Timer, Shield, Menu, X, AlertTriangle, Check, CheckSquare, Trello, 
-            ArrowLeft, Edit, Eye, Pencil, TrendingUp, RotateCcw, Save
+            ArrowLeft, Edit, Eye, Pencil, TrendingUp, RotateCcw, Save, Cloud, Wifi
         } from 'lucide-react';
 
-        // --- CONFIGURACIÓN DE FIREBASE ---
+        // --- 1. TU CONFIGURACIÓN DE FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyB4pExqScseOpAjD6KDMqislfx1XHO96hw",
             authDomain: "top-8-9b59a.firebaseapp.com",
@@ -85,12 +89,15 @@
             measurementId: "G-DQYCFPS9XH"
         };
 
-        // --- INICIALIZACIÓN ---
+        // --- INICIALIZACIÓN DE FIREBASE ---
         const app = initializeApp(firebaseConfig);
         const analytics = getAnalytics(app);
         const auth = getAuth(app);
         const db = getFirestore(app);
 
+        // --- 2. ID GLOBAL DE LA BASE DE DATOS ---
+        // IMPORTANTE: Al dejar este ID fijo, todos los dispositivos que usen este código
+        // leerán y escribirán en el mismo lugar. ¡No lo cambies si quieres mantener tus datos!
         const appId = 'top-8-main-data';
 
         // --- UTILIDADES ---
@@ -100,14 +107,14 @@
         ];
 
         const generateRoster = () => {
-        return playerPositions.map((pos, index) => ({
-            id: `pl-${Math.random().toString(36).substr(2, 9)}`,
-            name: `Jugador ${index + 1}`,
-            position: pos,
-            number: index + 1,
-            isStarter: index < 11,
-            cards: { yellow: 0, red: 0 } 
-        }));
+            return playerPositions.map((pos, index) => ({
+                id: `pl-${Math.random().toString(36).substr(2, 9)}`,
+                name: `Jugador ${index + 1}`,
+                position: pos,
+                number: index + 1,
+                isStarter: index < 11,
+                cards: { yellow: 0, red: 0 } 
+            }));
         };
 
         const getInitialPenaltyShootout = () => ({
@@ -123,7 +130,6 @@
             });
         };
 
-        // Simulación básica
         const simulateQuickMatch = (probA, probB, startMinute = 0, currentScoreA = 0, currentScoreB = 0) => {
             let sA = currentScoreA;
             let sB = currentScoreB;
@@ -337,13 +343,15 @@
             const [editDateCurrent, setEditDateCurrent] = useState('');
             const [resetTournamentId, setResetTournamentId] = useState(null);
 
-            // --- AUTENTICACIÓN ---
+            // --- 3. CONEXIÓN PERSISTENTE ---
             useEffect(() => {
                 const initAuth = async () => {
                     try {
+                        // Usamos autenticación anónima para identificar la sesión,
+                        // pero la base de datos es GLOBAL (pública para este AppID)
                         await signInAnonymously(auth);
                     } catch (error) {
-                        console.error("Error de autenticación:", error);
+                        console.error("Error conectando a la base de datos:", error);
                     }
                 };
                 initAuth();
@@ -351,14 +359,17 @@
                 return () => unsubscribe();
             }, []);
 
-            // --- CARGA DE DATOS ---
+            // --- CARGA DE DATOS EN TIEMPO REAL ---
             useEffect(() => {
                 if (!user) return;
                 
+                // Estas rutas apuntan al espacio "Público" de la base de datos.
+                // Esto permite que todos los dispositivos vean lo mismo.
                 const teamsPath = collection(db, 'artifacts', appId, 'public', 'data', 'teams');
                 const matchesPath = collection(db, 'artifacts', appId, 'public', 'data', 'matches');
                 const tournamentsPath = collection(db, 'artifacts', appId, 'public', 'data', 'tournaments');
 
+                // onSnapshot escucha cambios en vivo. Si alguien edita en otro PC, aquí se actualiza solo.
                 const unsubTeams = onSnapshot(query(teamsPath, orderBy('name')), (snap) => setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
                 const unsubMatches = onSnapshot(query(matchesPath, orderBy('startTime', 'desc')), (snap) => setMatches(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
                 const unsubTournaments = onSnapshot(query(tournamentsPath, orderBy('createdAt', 'desc')), (snap) => setTournaments(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
@@ -844,7 +855,14 @@
                         </div>
                         <h2 className="text-5xl font-black italic tracking-tighter">TOP 8 <span className="text-white bg-[#C8AA6E] px-2 text-[#0F2044] skew-x-[-10deg] inline-block transform">LEAGUE</span></h2>
                     </div>
-                    <img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-32 h-32 object-contain drop-shadow-2xl" />
+                    <div className="flex flex-col items-end gap-2">
+                         <img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-32 h-32 object-contain drop-shadow-2xl" />
+                         {/* Indicador de conexión persistente */}
+                         <div className="flex items-center gap-2 bg-black/20 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10">
+                            <div className="w-2 h-2 rounded-full bg-green-400 ping"></div>
+                            <span className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-1"><Cloud size={12}/> Sincronizado</span>
+                         </div>
+                    </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Card className="p-5 border-l-4 border-l-[#C8AA6E]"><div className="flex justify-between"><p className="text-gray-400 text-xs font-bold uppercase">Clubes</p><p className="text-3xl font-bold text-[#0F2044]">{teams.length}</p></div></Card>
@@ -857,7 +875,6 @@
             // --- VISTA DE CLUBES ---
             const TeamsView = () => {
                 const [isEditing, setIsEditing] = useState(false);
-                // Nuevo estado para shortName
                 const [formData, setFormData] = useState({ name: '', shortName: '', logo: '', probability: 0.5, style: 'balanced' });
                 
                 const handleSubmit = async (e) => { 
@@ -878,7 +895,6 @@
                             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <Input label="Nombre del Club" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="md:col-span-2" required />
                                 <Input label="Logo URL" value={formData.logo} onChange={e => setFormData({...formData, logo: e.target.value})} />
-                                {/* Campo Nuevo: Sigla */}
                                 <Input 
                                     label="Sigla (3 Letras)" 
                                     value={formData.shortName} 
@@ -898,10 +914,10 @@
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{teams.map(t => (
                         <div key={t.id} className="bg-white border-t-4 border-t-[#0F2044] p-4 rounded-xl shadow-sm flex flex-col items-center text-center gap-3 relative group hover:shadow-md transition-shadow">
                             <button onClick={() => setDeleteTeamId(t.id)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"><Trash2 size={14}/></button>
+                            {/* LOGO SIN FONDO REDONDO - AJUSTE SOLICITADO */}
                             <img src={t.logo || `https://ui-avatars.com/api/?name=${t.name}&background=0F2044&color=C8AA6E`} className="w-24 h-24 object-contain" />
                             <div>
                                 <div className="font-bold text-lg text-[#0F2044] leading-tight">{t.name}</div>
-                                {/* Muestra la Sigla si existe */}
                                 <div className="text-[10px] text-[#C8AA6E] font-bold uppercase tracking-widest mt-1">{t.shortName || '---'}</div>
                             </div>
                         </div>
@@ -925,7 +941,6 @@
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'matches'), {
                         teamAId: newMatch.teamAId, teamBId: newMatch.teamBId, startTime: newMatch.startTime,
                         status: 'scheduled', autoStart: true, scoreA: 0, scoreB: 0, currentMinute: 0, events: [], period: '1T', 
-                        // Guardamos la fase escrita por el usuario en 'stageName'
                         stageName: newMatch.stageName,
                         matchType: 'custom', initialOdds: initialOdds
                     });
@@ -940,7 +955,6 @@
                             <Button onClick={() => setIsCreating(!isCreating)} className="bg-[#0F2044] text-[#C8AA6E]">{isCreating ? 'Cancelar' : <><Plus size={16}/> Crear Partido</>}</Button>
                         </div>
                         
-                        {/* Formulario de Creación de Partidos */}
                         {isCreating && (
                             <Card className="p-6 mb-6 animate-in fade-in slide-in-from-top-4">
                                 <h3 className="text-lg font-bold text-[#0F2044] mb-4">Nuevo Partido Manual</h3>
@@ -1017,7 +1031,6 @@
                         <>
                         {view === 'dashboard' && <DashboardView />}
                         {view === 'teams' && <TeamsView />}
-                        {/* Ahora usamos MatchesView en lugar de pintar directamente */}
                         {view === 'matches' && <MatchesView />}
                         {view === 'tournaments' && <TournamentsView tournaments={tournaments} allTeams={teams} allMatches={matches} user={user} onDeleteClick={(id) => setDeleteTournamentId(id)} />}
                         </>
