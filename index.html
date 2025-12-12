@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Top 8 League Manager</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Import Map para dependencias de React y Firebase -->
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+            "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js",
+            "firebase/analytics": "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js",
+            "lucide-react": "https://esm.sh/lucide-react@0.344.0"
+        }
+    }
+    </script>
+    
+    <!-- Babel para compilar JSX en el navegador -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        /* Personalización de barra de desplazamiento */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #C8AA6E; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #0F2044; }
+        
+        /* Animaciones suaves */
+        .animate-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-[#F8F9FA] text-[#0F2044] antialiased">
+    <div id="root"></div>
+
+    <!-- Código de la Aplicación -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { initializeApp } from 'firebase/app';
+        import { getAnalytics } from "firebase/analytics";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            onAuthStateChanged
+        } from 'firebase/auth';
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            updateDoc, 
+            deleteDoc, 
+            doc, 
+            query, 
+            onSnapshot, 
+            orderBy, 
+            serverTimestamp,
+            writeBatch,
+            arrayUnion, 
+            where,
+            getDocs
+        } from 'firebase/firestore';
+        import { 
+            Trophy, Users, Calendar, Play, Plus, Trash2, Activity, Clock, Crown,
+            Timer, Shield, Menu, X, AlertTriangle, Check, CheckSquare, Trello, 
+            ArrowLeft, Edit, Eye, Pencil, TrendingUp, RotateCcw
+        } from 'lucide-react';
+
+        // --- TU CONFIGURACIÓN DE FIREBASE ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyB4pExqScseOpAjD6KDMqislfx1XHO96hw",
+            authDomain: "top-8-9b59a.firebaseapp.com",
+            projectId: "top-8-9b59a",
+            storageBucket: "top-8-9b59a.firebasestorage.app",
+            messagingSenderId: "232682268166",
+            appId: "1:232682268166:web:420cbceb6072054615c587",
+            measurementId: "G-DQYCFPS9XH"
+        };
+
+        // --- INICIALIZACIÓN ---
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app); // Analytics inicializado
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Usamos un ID fijo para la colección en tu BD
+        const appId = 'top-8-main-data';
+
+        // --- CONSTANTES DE DISEÑO (TOP 8) ---
+        // Azul Navy: #0F2044 | Dorado: #C8AA6E | Blanco: #FFFFFF
+        const THEME = {
+            primary: "#0F2044", // Navy Blue
+            accent: "#C8AA6E",  // Gold
+            bg: "#F8F9FA",      // Light Gray
+            success: "#C8AA6E", // Gold as success/primary action
+            danger: "#EF4135",  // Red for danger
+            textMain: "#0F2044",
+            textLight: "#64748B"
+        };
+
+        // --- UTILIDADES ---
+        const playerPositions = [
+            "POR", "DEF", "DEF", "DEF", "DEF", "MED", "MED", "MED", "DEL", "DEL", "DEL",
+            "POR", "DEF", "DEF", "MED", "MED", "MED", "DEL", "DEL", "DEL"
+        ];
+
+        const generateRoster = () => {
+        return playerPositions.map((pos, index) => ({
+            id: `pl-${Math.random().toString(36).substr(2, 9)}`,
+            name: `Jugador ${index + 1}`,
+            position: pos,
+            number: index + 1,
+            isStarter: index < 11,
+            cards: { yellow: 0, red: 0 } 
+        }));
+        };
+
+        const getInitialPenaltyShootout = () => ({
+            scoreA: 0, scoreB: 0, attemptsA: 0, attemptsB: 0,
+            kicker: 'A', log: [], winner: null, isKicking: false
+        });
+
+        const formatDate = (dateString) => {
+            if (!dateString) return "TBD";
+            const date = new Date(dateString);
+            return date.toLocaleDateString('es-ES', { 
+                weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            });
+        };
+
+        const simulateQuickMatch = (probA, probB, startMinute = 0, currentScoreA = 0, currentScoreB = 0) => {
+            let sA = currentScoreA;
+            let sB = currentScoreB;
+            const baseGoalChance = 0.10; 
+
+            for (let m = startMinute; m < 90; m++) {
+                let attackA = Math.pow(probA, 2); 
+                let attackB = Math.pow(probB, 2);
+                const totalAttack = attackA + attackB;
+                
+                if (Math.random() < 0.22) { 
+                    const isTeamA = Math.random() * totalAttack < attackA;
+                    const diff = isTeamA ? probA - probB : probB - probA;
+                    let goalChance = baseGoalChance + (diff * 0.45); 
+                    if (Math.random() < Math.max(0.005, goalChance)) {
+                        if (isTeamA) sA++; else sB++;
+                    }
+                }
+            }
+            return { sA, sB };
+        };
+
+        const calculateOdds = (teamA, teamB, startMinute = 0, currentScoreA = 0, currentScoreB = 0) => {
+            if (!teamA || !teamB) return { win: 0, draw: 0, loss: 0 };
+            const iterations = 1500; 
+            let winsA = 0, draws = 0, winsB = 0;
+            const probA = parseFloat(teamA.probability || 0.5);
+            const probB = parseFloat(teamB.probability || 0.5);
+
+            for (let i = 0; i < iterations; i++) {
+                const result = simulateQuickMatch(probA, probB, startMinute, currentScoreA, currentScoreB);
+                if (result.sA > result.sB) winsA++;
+                else if (result.sB > result.sA) winsB++;
+                else draws++;
+            }
+            const pWin = winsA / iterations;
+            const pDraw = draws / iterations;
+            const pLoss = winsB / iterations;
+            const formatOdd = (p) => p > 0.002 ? (1 / p).toFixed(2) : "500.00";
+            return {
+                home: formatOdd(pWin), draw: formatOdd(pDraw), away: formatOdd(pLoss),
+                probs: { w: (pWin*100).toFixed(0), d: (pDraw*100).toFixed(0), l: (pLoss*100).toFixed(0) }
+            };
+        };
+
+        const calculateStandings = (groupId, teamIds, allTeams, allMatches) => {
+            const standings = teamIds.map(id => {
+                const teamData = allTeams.find(t => t.id === id) || { id, name: 'Equipo Desconocido' };
+                return { ...teamData, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, GD: 0, Pts: 0 };
+            });
+            const groupMatches = allMatches.filter(m => m.groupId === groupId && m.status === 'finished');
+            
+            for (const match of groupMatches) {
+                const teamA = standings.find(t => t.id === match.teamAId);
+                const teamB = standings.find(t => t.id === match.teamBId);
+                if (!teamA || !teamB) continue;
+                teamA.P++; teamB.P++;
+                teamA.GF += match.scoreA; teamA.GA += match.scoreB;
+                teamB.GF += match.scoreB; teamB.GA += match.scoreA;
+                if (match.scoreA > match.scoreB) { teamA.W++; teamA.Pts += 3; teamB.L++; } 
+                else if (match.scoreB > match.scoreA) { teamB.W++; teamB.Pts += 3; teamA.L++; } 
+                else { teamA.D++; teamA.Pts += 1; teamB.D++; teamB.Pts += 1; }
+            }
+            standings.forEach(t => t.GD = t.GF - t.GA);
+            standings.sort((a, b) => {
+                if (a.Pts !== b.Pts) return b.Pts - a.Pts;
+                if (a.GD !== b.GD) return b.GD - a.GD;
+                if (a.GF !== b.GF) return b.GF - a.GF;
+                return a.name.localeCompare(b.name);
+            });
+            return standings;
+        };
+
+        // --- COMPONENTES UI (TOP 8 THEME) ---
+
+        const Card = ({ children, className = "" }) => (
+            <div className={`bg-white border-t-4 border-t-[#C8AA6E] rounded-xl shadow-md overflow-hidden ${className}`}>
+                {children}
+            </div>
+        );
+
+        const Button = ({ onClick, children, variant = "primary", className = "", disabled = false, type = "button" }) => {
+            const variants = {
+                primary: "bg-[#C8AA6E] hover:bg-[#b0955e] text-[#0F2044] font-bold shadow-sm",
+                secondary: "bg-white hover:bg-[#F8F9FA] text-[#0F2044] border border-[#0F2044]/20",
+                danger: "bg-[#EF4135] hover:bg-[#c9342a] text-white border border-red-700",
+                dark: "bg-[#0F2044] hover:bg-[#0A1630] text-white border border-[#0F2044]"
+            };
+            return (
+                <button type={type} onClick={onClick} disabled={disabled}
+                className={`px-4 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${variants[variant]} ${className}`}
+                >
+                {children}
+                </button>
+            );
+        };
+
+        const Input = ({ label, ...props }) => (
+            <div className="flex flex-col gap-1 mb-3">
+                {label && <label className="text-[10px] uppercase tracking-widest text-[#0F2044] font-bold opacity-70">{label}</label>}
+                <input className="bg-[#F8F9FA] border border-slate-200 text-[#0F2044] rounded-lg p-2.5 focus:ring-2 focus:ring-[#C8AA6E] outline-none transition-all w-full" {...props} />
+            </div>
+        );
+
+        const Select = ({ label, options, ...props }) => (
+            <div className="flex flex-col gap-1 mb-3">
+                {label && <label className="text-[10px] uppercase tracking-widest text-[#0F2044] font-bold opacity-70">{label}</label>}
+                <select className="bg-[#F8F9FA] border border-slate-200 text-[#0F2044] rounded-lg p-2.5 focus:ring-2 focus:ring-[#C8AA6E] outline-none w-full" {...props}>
+                    {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+            </div>
+        );
+
+        const SmallSelect = ({ options, ...props }) => (
+            <select className="bg-[#F8F9FA] border border-slate-200 text-[#0F2044] rounded-lg p-2 focus:ring-2 focus:ring-[#C8AA6E] outline-none w-full" {...props}>
+                {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+        );
+        const SmallInput = ({ ...props }) => (
+            <input className="bg-[#F8F9FA] border border-slate-200 text-[#0F2044] rounded-lg p-2 focus:ring-2 focus:ring-[#C8AA6E] outline-none transition-all w-full" {...props} />
+        );
+
+        const Badge = ({ status, period }) => {
+            const styles = {
+                scheduled: "bg-slate-100 text-slate-500 border border-slate-200",
+                live: "bg-[#EF4135] text-white animate-pulse",
+                halftime: "bg-[#C8AA6E] text-[#0F2044] font-bold",
+                penalties: "bg-[#0F2044] text-[#C8AA6E] border border-[#C8AA6E]",
+                finished: "bg-[#0F2044] text-white",
+            };
+            const labels = {
+                scheduled: "PROGRAMADO", live: period === '1T' ? "EN VIVO (1T)" : "EN VIVO (2T)",
+                halftime: "MEDIO TIEMPO", penalties: "PENALES", finished: "FINALIZADO",
+            };
+            return (
+                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wider shadow-sm ${styles[status] || styles.scheduled}`}>
+                {labels[status] || status}
+                </span>
+            );
+        };
+
+        const ToggleSwitch = ({ isEnabled, onToggle, labelLeft, labelRight, IconLeft, IconRight }) => (
+            <div className="flex items-center gap-2">
+                <span className={`font-bold text-xs uppercase ${!isEnabled ? 'text-[#0F2044]' : 'text-gray-400'}`}>
+                    {IconLeft && <IconLeft size={16} className="inline-block mr-1" />} {labelLeft}
+                </span>
+                <button onClick={onToggle} className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${isEnabled ? 'bg-[#C8AA6E]' : 'bg-gray-300'}`}>
+                <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+                <span className={`font-bold text-xs uppercase ${isEnabled ? 'text-[#C8AA6E]' : 'text-gray-400'}`}>
+                    {IconRight && <IconRight size={16} className="inline-block mr-1" />} {labelRight}
+                </span>
+            </div>
+        );
+
+        const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#0F2044]/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border-t-4 border-t-[#EF4135]">
+                    <div className="flex items-center gap-3 text-[#EF4135] mb-4">
+                        <AlertTriangle size={24} />
+                        <h3 className="text-lg font-bold text-[#0F2044]">{title}</h3>
+                    </div>
+                    <p className="text-gray-600 mb-6 text-sm">{message}</p>
+                    <div className="flex justify-end gap-3">
+                    <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+                    <Button variant="danger" onClick={() => { onConfirm(); onClose(); }}>Sí, Continuar</Button>
+                    </div>
+                </div>
+                </div>
+            );
+        };
+
+        const EditDateModal = ({ isOpen, onClose, onConfirm, currentDate }) => {
+            const [newDate, setNewDate] = useState(currentDate || '');
+            useEffect(() => { setNewDate(currentDate || ''); }, [currentDate, isOpen]);
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#0F2044]/80 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border-t-4 border-t-[#C8AA6E]">
+                    <h3 className="text-lg font-bold text-[#0F2044] mb-4 flex items-center gap-2"><Calendar size={20}/> Reprogramar</h3>
+                    <div className="mb-6"><Input type="datetime-local" value={newDate} onChange={(e) => setNewDate(e.target.value)} /></div>
+                    <div className="flex justify-end gap-3">
+                    <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+                    <Button variant="primary" onClick={() => { onConfirm(newDate); onClose(); }}>Guardar</Button>
+                    </div>
+                </div>
+                </div>
+            );
+        };
+
+        const StatRow = ({ label, valA, valB, total }) => {
+            const percentA = total > 0 ? (valA / total) * 100 : 50;
+            return (
+                <div className="mb-3">
+                    <div className="flex justify-between text-xs font-bold text-[#0F2044] mb-1 uppercase tracking-widest">
+                        <span className="text-[#C8AA6E]">{valA}</span>
+                        <span className="text-gray-400">{label}</span>
+                        <span className="text-[#0F2044]">{valB}</span>
+                    </div>
+                    <div className="flex h-2 bg-gray-200 rounded-full overflow-hidden shadow-inner">
+                        <div className="bg-[#C8AA6E]" style={{ width: `${percentA}%` }}></div>
+                        <div className="bg-[#0F2044]" style={{ width: `${100 - percentA}%` }}></div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- APP PRINCIPAL ---
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [view, setView] = useState('dashboard'); 
+            const [teams, setTeams] = useState([]);
+            const [matches, setMatches] = useState([]);
+            const [tournaments, setTournaments] = useState([]); 
+            const [selectedMatchId, setSelectedMatchId] = useState(null);
+            const [timeScale, setTimeScale] = useState(60000); 
+            const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+            const [deleteTeamId, setDeleteTeamId] = useState(null);
+            const [deleteMatchId, setDeleteMatchId] = useState(null);
+            const [deleteTournamentId, setDeleteTournamentId] = useState(null); 
+            const [editDateMatchId, setEditDateMatchId] = useState(null);
+            const [editDateCurrent, setEditDateCurrent] = useState('');
+            const [resetTournamentId, setResetTournamentId] = useState(null);
+
+            // --- AUTENTICACIÓN SEGURA Y AUTOMÁTICA ---
+            useEffect(() => {
+                const initAuth = async () => {
+                    // Solo usamos autenticación anónima para conectar a tu BD
+                    // Asegúrate de habilitar "Anonymous" en Firebase Authentication
+                    try {
+                        await signInAnonymously(auth);
+                    } catch (error) {
+                        console.error("Error de autenticación:", error);
+                        // Si falla, podrías intentar otro método, pero por ahora solo logueamos
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
+            }, []);
+
+            // --- CARGA DE DATOS (Protegida) ---
+            useEffect(() => {
+                if (!user) return; // Solo cargar si hay usuario autenticado
+                
+                // Rutas específicas del sistema de artefactos (NO MODIFICAR)
+                const teamsPath = collection(db, 'artifacts', appId, 'public', 'data', 'teams');
+                const matchesPath = collection(db, 'artifacts', appId, 'public', 'data', 'matches');
+                const tournamentsPath = collection(db, 'artifacts', appId, 'public', 'data', 'tournaments');
+
+                const unsubTeams = onSnapshot(query(teamsPath, orderBy('name')), (snap) => setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                const unsubMatches = onSnapshot(query(matchesPath, orderBy('startTime', 'desc')), (snap) => setMatches(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                const unsubTournaments = onSnapshot(query(tournamentsPath, orderBy('createdAt', 'desc')), (snap) => setTournaments(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                
+                return () => { unsubTeams(); unsubMatches(); unsubTournaments(); }; 
+            }, [user]); 
+
+            // Simulación
+            useEffect(() => {
+                if (!user || matches.length === 0) return;
+                const intervalId = setInterval(() => {
+                matches.forEach(match => {
+                    if (match.status === 'scheduled' && match.autoStart) {
+                        if (new Date() >= new Date(match.startTime)) startMatch(match);
+                    } else if (match.status === 'live' || match.status === 'halftime') {
+                    simulateStep(match);
+                    }
+                });
+                }, timeScale); 
+                return () => clearInterval(intervalId);
+            }, [user, matches, timeScale, teams]);
+
+            const startMatch = async (match) => {
+                if (!user) return;
+                const teamA = teams.find(t => t.id === match.teamAId);
+                const teamB = teams.find(t => t.id === match.teamBId);
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', match.id), {
+                status: 'live', period: '1T', currentMinute: 0, addedTime: Math.floor(Math.random()*4)+1, halftimeCounter: 0, scoreA: 0, scoreB: 0,
+                events: [{ type: 'whistle', minute: 0, text: '¡Comienza el partido!' }],
+                stats: { possession: 50, shotsA: 0, shotsB: 0, onTargetA: 0, onTargetB: 0, foulsA: 0, foulsB: 0, yellowA: 0, yellowB: 0, redA: 0, redB: 0, cornersA: 0, cornersB: 0 }, 
+                lineups: { teamA: teamA?.roster || generateRoster(), teamB: teamB?.roster || generateRoster() }
+                });
+            };
+
+            const simulateStep = async (match) => {
+                if (!match.lineups || !user) return; 
+                let updates = {};
+                const newEvents = [...match.events];
+                const stats = { ...match.stats };
+                
+                if (match.status === 'halftime') {
+                const newCounter = (match.halftimeCounter || 0) + 1;
+                if (newCounter >= 15) {
+                    updates = { status: 'live', period: '2T', currentMinute: 45, halftimeCounter: 0, addedTime: Math.floor(Math.random()*5)+2, events: [...newEvents, { type: 'whistle', minute: 45, text: 'Arranca el Segundo Tiempo.' }] };
+                } else { updates = { halftimeCounter: newCounter }; }
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', match.id), updates);
+                return;
+                }
+
+                const currentMin = match.currentMinute;
+                const nextMin = currentMin + 1;
+                const maxTime = (match.period === '1T' ? 45 : 90) + (match.addedTime || 0);
+
+                if (currentMin >= maxTime) {
+                if (match.period === '1T') {
+                    updates = { status: 'halftime', period: 'HT', halftimeCounter: 0, events: [...newEvents, { type: 'whistle', minute: currentMin, text: 'Fin del Primer Tiempo.' }] };
+                } else {
+                    newEvents.push({ type: 'whistle', minute: currentMin, text: '¡FINAL DEL PARTIDO!' });
+                    updates = { status: 'finished', events: newEvents };
+                    if (match.matchType === 'knockout' && match.scoreA === match.scoreB) {
+                        updates.status = 'penalties';
+                        updates.penaltyShootout = getInitialPenaltyShootout();
+                    }
+                }
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', match.id), updates);
+                return;
+                }
+
+                updates.currentMinute = nextMin;
+                const teamA = teams.find(t => t.id === match.teamAId);
+                const teamB = teams.find(t => t.id === match.teamBId);
+
+                if (teamA && teamB) {
+                const probA = parseFloat(teamA.probability); 
+                const probB = parseFloat(teamB.probability);
+                let targetPossession = 50 + (probA - probB) * 50; 
+                if (teamA.style === 'possession') targetPossession += 10;
+                if (teamB.style === 'possession') targetPossession -= 10;
+                stats.possession = Math.round(stats.possession + ((targetPossession - stats.possession) * 0.15) + (Math.random()*4-2));
+
+                if (Math.random() < 0.22) { 
+                    let attackA = Math.pow(probA, 2) + (stats.possession/150); 
+                    let attackB = Math.pow(probB, 2) + ((100-stats.possession)/150);
+                    const isTeamA = Math.random() * (attackA + attackB) < attackA;
+                    const attackingTeamName = isTeamA ? teamA.name : teamB.name;
+                    
+                    if (Math.random() < 0.8) { 
+                        if (isTeamA) stats.shotsA++; else stats.shotsB++;
+                        if (Math.random() < 0.35) { 
+                            if (isTeamA) stats.onTargetA++; else stats.onTargetB++;
+                            const diff = isTeamA ? probA - probB : probB - probA;
+                            let goalChance = 0.25 + (diff * 0.5); 
+                            if (Math.random() < goalChance) {
+                                updates[isTeamA ? 'scoreA' : 'scoreB'] = (match[isTeamA ? 'scoreA' : 'scoreB'] || 0) + 1;
+                                newEvents.push({ type: 'goal', minute: nextMin, text: `¡GOL de ${attackingTeamName}!` });
+                            }
+                        }
+                    }
+                }
+                }
+                updates.events = newEvents;
+                updates.stats = stats;
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', match.id), updates);
+            };
+
+            const handlePenaltyKick = async (match) => {
+                if (!user || !match.penaltyShootout || match.penaltyShootout.isKicking || match.penaltyShootout.winner) return;
+                const currentShootout = JSON.parse(JSON.stringify(match.penaltyShootout));
+                const newEvents = [...match.events];
+                currentShootout.isKicking = true;
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', match.id), { penaltyShootout: currentShootout });
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                const isGoal = Math.random() < 0.75;
+                currentShootout.isKicking = false;
+                currentShootout.log.push({ kicker: currentShootout.kicker, result: isGoal ? 'goal' : 'miss' });
+                
+                if (currentShootout.kicker === 'A') {
+                currentShootout.attemptsA++;
+                if (isGoal) currentShootout.scoreA++;
+                currentShootout.kicker = 'B';
+                } else {
+                currentShootout.attemptsB++;
+                if (isGoal) currentShootout.scoreB++;
+                currentShootout.kicker = 'A';
+                }
+
+                if (currentShootout.attemptsA >= 5 && currentShootout.attemptsB >= 5 && currentShootout.attemptsA === currentShootout.attemptsB) {
+                    if (currentShootout.scoreA > currentShootout.scoreB) currentShootout.winner = 'A';
+                    else if (currentShootout.scoreB > currentShootout.scoreA) currentShootout.winner = 'B';
+                }
+
+                let newStatus = 'penalties';
+                if (currentShootout.winner) {
+                    newStatus = 'finished';
+                    newEvents.push({ type: 'whistle', minute: 'PEN', text: `¡Gana el equipo ${currentShootout.winner === 'A' ? 'Local' : 'Visitante'} en penales!` });
+                }
+                
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', match.id), {
+                status: newStatus, penaltyShootout: currentShootout, events: newEvents
+                });
+            };
+
+            const handleUpdateMatchDate = async (newDate) => {
+                if (!user || !editDateMatchId || !newDate) return;
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', editDateMatchId), { startTime: newDate });
+                setEditDateMatchId(null);
+            };
+
+            const MatchDetail = ({ match, onBack }) => {
+                const [showLiveOdds, setShowLiveOdds] = useState(false);
+                const teamA = teams.find(t => t.id === match.teamAId);
+                const teamB = teams.find(t => t.id === match.teamBId);
+                const stats = match.stats || { possession: 50, shotsA: 0, shotsB: 0, onTargetA: 0, onTargetB: 0, foulsA: 0, foulsB: 0, yellowA: 0, yellowB: 0, redA: 0, redB: 0, cornersA: 0, cornersB: 0 };
+                
+                const odds = useMemo(() => {
+                    if (showLiveOdds && (match.status === 'live' || match.status === 'halftime')) {
+                        return calculateOdds(teamA, teamB, match.currentMinute, match.scoreA, match.scoreB);
+                    }
+                    return match.initialOdds || { home: '-', draw: '-', away: '-' };
+                }, [showLiveOdds, match.scoreA, match.scoreB, match.currentMinute, teamA, teamB]);
+
+                return (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 pb-10">
+                        <div className="flex justify-between items-center mb-4 bg-white p-3 rounded-lg border-l-4 border-l-[#0F2044] shadow-sm">
+                            <button onClick={onBack} className="text-[#0F2044] hover:text-[#C8AA6E] flex items-center gap-2 text-sm font-bold uppercase"><ArrowLeft size={16}/> Volver</button>
+                            <div className="flex gap-1">
+                                {[60000, 2000, 50].map(speed => (
+                                    <button key={speed} onClick={() => setTimeScale(speed)} className={`px-2 py-1 rounded text-xs font-bold ${timeScale === speed ? 'bg-[#C8AA6E] text-[#0F2044]' : 'bg-slate-100 text-gray-500'}`}>
+                                        {speed === 60000 ? '1x' : speed === 2000 ? '30x' : 'Max'}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Scoreboard */}
+                        <div className="bg-[#0F2044] rounded-t-2xl border-b-4 border-[#C8AA6E] p-6 text-center relative overflow-hidden shadow-xl text-white">
+                            <div className="flex justify-between items-center max-w-4xl mx-auto relative z-10">
+                                <div className="flex flex-col items-center w-1/3">
+                                    <img src={teamA?.logo || `https://ui-avatars.com/api/?name=${teamA?.name}&background=C8AA6E&color=0F2044`} className="w-20 h-20 object-contain drop-shadow-md" />
+                                    <h2 className="text-xl font-bold mt-2">{teamA?.name}</h2>
+                                </div>
+                                <div className="flex flex-col items-center w-1/3">
+                                    <div className="text-6xl font-black tracking-tighter flex items-center gap-4">
+                                        <span>{match.scoreA}</span><span className="text-[#C8AA6E]">-</span><span>{match.scoreB}</span>
+                                    </div>
+                                    <div className="mt-2 flex flex-col items-center gap-1">
+                                        <Badge status={match.status} period={match.period} />
+                                        <div className="text-[#C8AA6E] font-mono text-xl font-bold">{match.currentMinute}'</div>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col items-center w-1/3">
+                                    <img src={teamB?.logo || `https://ui-avatars.com/api/?name=${teamB?.name}&background=C8AA6E&color=0F2044`} className="w-20 h-20 object-contain drop-shadow-md" />
+                                    <h2 className="text-xl font-bold mt-2">{teamB?.name}</h2>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-4">
+                            {/* Stats & Odds */}
+                            <div className="lg:col-span-4 space-y-4">
+                                {/* Odds Panel */}
+                                <div className="bg-[#0F2044] text-white rounded-xl p-4 shadow-lg border border-[#C8AA6E]">
+                                    <div className="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+                                        <h3 className="text-xs font-bold uppercase flex items-center gap-2 text-[#C8AA6E]"><TrendingUp size={14} /> Cuotas</h3>
+                                        <button onClick={() => setShowLiveOdds(!showLiveOdds)} className={`px-2 py-0.5 text-[10px] rounded font-bold uppercase ${showLiveOdds ? 'bg-[#EF4135]' : 'bg-[#C8AA6E] text-[#0F2044]'}`}>
+                                            {showLiveOdds ? 'En Vivo' : 'Iniciales'}
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 text-center">
+                                        <div className="bg-[#0A1630] p-2 rounded border border-gray-700">
+                                            <div className="text-[10px] text-gray-400 font-bold mb-1 truncate">{teamA?.name}</div>
+                                            <div className="text-xl font-mono font-bold text-[#C8AA6E]">{odds.home}</div>
+                                        </div>
+                                        <div className="bg-[#0A1630] p-2 rounded border border-gray-700">
+                                            <div className="text-[10px] text-gray-400 font-bold mb-1">EMPATE</div>
+                                            <div className="text-xl font-mono font-bold text-white">{odds.draw}</div>
+                                        </div>
+                                        <div className="bg-[#0A1630] p-2 rounded border border-gray-700">
+                                            <div className="text-[10px] text-gray-400 font-bold mb-1 truncate">{teamB?.name}</div>
+                                            <div className="text-xl font-mono font-bold text-[#C8AA6E]">{odds.away}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Stats */}
+                                <Card className="p-6">
+                                    <div className="mb-4">
+                                        <div className="flex justify-between text-xl font-bold text-[#0F2044] mb-2">
+                                            <span className="text-[#C8AA6E]">{stats.possession}%</span>
+                                            <span className="text-xs text-gray-400 self-center uppercase">Posesión</span>
+                                            <span className="text-[#0F2044]">{100 - stats.possession}%</span>
+                                        </div>
+                                        <div className="flex h-2 bg-gray-100 rounded-full overflow-hidden">
+                                            <div className="bg-[#C8AA6E]" style={{ width: `${stats.possession}%` }}></div>
+                                            <div className="bg-[#0F2044]" style={{ width: `${100 - stats.possession}%` }}></div>
+                                        </div>
+                                    </div>
+                                    <StatRow label="Tiros" valA={stats.shotsA} valB={stats.shotsB} total={stats.shotsA + stats.shotsB} />
+                                    <StatRow label="Al Arco" valA={stats.onTargetA} valB={stats.onTargetB} total={stats.onTargetA + stats.onTargetB} />
+                                    <StatRow label="Faltas" valA={stats.foulsA} valB={stats.foulsB} total={stats.foulsA + stats.foulsB} />
+                                </Card>
+
+                                {match.status === 'scheduled' && <Button onClick={() => startMatch(match)} className="w-full"><Play size={16}/> Iniciar Partido</Button>}
+                                {match.status === 'live' && <Button variant="danger" onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', match.id), { status: 'finished' })} className="w-full">Finalizar Partido</Button>}
+                            </div>
+
+                            {/* Timeline */}
+                            <div className="lg:col-span-8 bg-white border-t-4 border-t-[#0F2044] rounded-xl shadow-sm flex flex-col h-[500px]">
+                                <div className="bg-slate-50 p-3 border-b border-slate-100 font-bold text-[#0F2044] uppercase text-xs flex items-center gap-2"><Clock size={14}/> Minuto a Minuto</div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                    {[...match.events].reverse().map((ev, idx) => (
+                                        <div key={idx} className={`flex items-start gap-3 p-3 rounded border shadow-sm ${ev.type === 'goal' ? 'bg-[#FFFBEB] border-[#C8AA6E]' : 'bg-white border-gray-100'}`}>
+                                            <div className="text-[#0F2044] font-mono font-bold text-sm min-w-[32px]">{ev.minute}'</div>
+                                            <div className={`text-sm font-medium ${ev.type === 'goal' ? 'text-[#0F2044] font-bold' : 'text-gray-600'}`}>{ev.text}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            };
+
+            const MatchCard = ({ match, onClick, onDelete, onEditDate }) => {
+                const teamA = teams.find(t => t.id === match.teamAId);
+                const teamB = teams.find(t => t.id === match.teamBId);
+                return (
+                    <div onClick={onClick} className="p-4 hover:bg-slate-50 transition-all cursor-pointer group relative rounded-xl border-l-4 border-l-[#0F2044] bg-white shadow-sm mb-3">
+                        {(match.status === 'live' || match.status === 'penalties') && <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#C8AA6E]"></div>}
+                        
+                        <div className="absolute top-2 right-2 z-20 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                            <button onClick={(e) => { e.stopPropagation(); onEditDate(match.id, match.startTime); }} className="text-gray-400 hover:text-[#C8AA6E] p-1.5"><Pencil size={14} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); onDelete(match.id); }} className="text-gray-400 hover:text-[#EF4135] p-1.5"><Trash2 size={14} /></button>
+                        </div>
+
+                        <div className="flex justify-between items-center mb-2 pl-2">
+                            <Badge status={match.status} period={match.period} />
+                            <span className="text-xs text-gray-500 font-bold">{formatDate(match.startTime)}</span>
+                        </div>
+                        <div className="text-xs text-[#C8AA6E] font-bold pl-2 mb-3 uppercase tracking-wider">{match.groupName || match.stageName || 'Amistoso'}</div>
+                        
+                        <div className="flex items-center justify-between pl-2">
+                            <div className="flex items-center gap-3 w-1/3">
+                                <img src={teamA?.logo || `https://ui-avatars.com/api/?name=${teamA?.name}&background=0F2044&color=fff`} className="w-8 h-8 object-contain" />
+                                <span className="font-bold text-[#0F2044] text-sm truncate">{teamA?.name}</span>
+                            </div>
+                            <div className="font-bold text-xl text-[#0F2044] bg-slate-50 px-3 py-1 rounded border border-slate-100">
+                                {match.status === 'scheduled' ? <span className="text-[#C8AA6E]">VS</span> : `${match.scoreA} - ${match.scoreB}`}
+                            </div>
+                            <div className="flex items-center gap-3 w-1/3 justify-end">
+                                <span className="font-bold text-[#0F2044] text-sm truncate">{teamB?.name}</span>
+                                <img src={teamB?.logo || `https://ui-avatars.com/api/?name=${teamB?.name}&background=0F2044&color=fff`} className="w-8 h-8 object-contain" />
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const TournamentsView = ({ tournaments, allTeams, allMatches, user, onDeleteClick }) => {
+                const top8Cup = tournaments.find(t => t.name === "Torneo Top 8");
+
+                const handleCreateTop8Cup = async () => {
+                    if (!user) return;
+                    // Crea automáticamente 2 grupos
+                    const groupA = { id: `g-${crypto.randomUUID()}`, name: "Grupo A", teams: [], settings: { classifiedSlots: 2 } };
+                    const groupB = { id: `g-${crypto.randomUUID()}`, name: "Grupo B", teams: [], settings: { classifiedSlots: 2 } };
+                    
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tournaments'), {
+                        name: "Torneo Top 8",
+                        createdAt: serverTimestamp(),
+                        groups: [groupA, groupB], 
+                        knockout: null 
+                    });
+                };
+                
+                if (top8Cup) {
+                    return <TournamentDetailView tournament={top8Cup} user={user} allTeams={allTeams} allMatches={allMatches} onDeleteTournament={onDeleteClick} />;
+                }
+
+                return (
+                    <div className="flex flex-col items-center justify-center h-[500px]">
+                        <img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-32 h-32 object-contain mb-6 opacity-80" />
+                        <h2 className="text-3xl font-bold text-[#0F2044] mb-2">Top 8 League</h2>
+                        <p className="text-gray-500 mb-6 text-center max-w-md">No hay torneo activo. Inicializa la estructura oficial.</p>
+                        <Button onClick={handleCreateTop8Cup} className="text-lg px-8 py-3 bg-[#0F2044] text-[#C8AA6E] hover:bg-[#0A1630]">
+                            <Plus size={20} /> Inicializar Top 8
+                        </Button>
+                    </div>
+                );
+            };
+            
+            const TournamentDetailView = ({ tournament, user, allTeams, allMatches, onDeleteTournament }) => {
+                const [teamToAdd, setTeamToAdd] = useState({ groupId: null, teamId: '' });
+                const [matchForm, setMatchForm] = useState({ groupId: null, teamAId: '', teamBId: '', startTime: '' });
+                const [isResetting, setIsResetting] = useState(false);
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'tournaments', tournament.id);
+
+                const handleAddTeamToGroup = async (groupId) => {
+                    if (!teamToAdd.teamId || !groupId) return;
+                    const newGroups = tournament.groups.map(g => {
+                        if (g.id === groupId) return g.teams.includes(teamToAdd.teamId) ? g : { ...g, teams: [...g.teams, teamToAdd.teamId] };
+                        return g;
+                    });
+                    await updateDoc(docRef, { groups: newGroups });
+                    setTeamToAdd({ groupId: null, teamId: '' });
+                };
+
+                const handleScheduleMatch = async () => {
+                    if (!matchForm.groupId || !matchForm.teamAId || !matchForm.teamBId || !matchForm.startTime) return;
+                    const group = tournament.groups.find(g => g.id === matchForm.groupId);
+                    const tA = allTeams.find(t => t.id === matchForm.teamAId);
+                    const tB = allTeams.find(t => t.id === matchForm.teamBId);
+                    const initialOdds = calculateOdds(tA, tB);
+
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'matches'), {
+                        teamAId: matchForm.teamAId, teamBId: matchForm.teamBId, startTime: matchForm.startTime,
+                        status: 'scheduled', autoStart: true, scoreA: 0, scoreB: 0, currentMinute: 0, events: [], period: '1T', 
+                        tournamentId: tournament.id, groupId: matchForm.groupId, groupName: group ? group.name : null, 
+                        matchType: 'group', initialOdds: initialOdds
+                    });
+                    setMatchForm({ groupId: null, teamAId: '', teamBId: '', startTime: '' });
+                };
+
+                const confirmReset = async () => {
+                    await updateDoc(docRef, { groups: [], knockout: null });
+                    const batch = writeBatch(db);
+                    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'matches'), where("tournamentId", "==", tournament.id));
+                    const snapshot = await getDocs(q);
+                    snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+                    await batch.commit();
+                    setIsResetting(false);
+                    // Re-create groups immediately
+                    await updateDoc(docRef, { 
+                        groups: [
+                            { id: `g-${crypto.randomUUID()}`, name: "Grupo A", teams: [], settings: { classifiedSlots: 2 } },
+                            { id: `g-${crypto.randomUUID()}`, name: "Grupo B", teams: [], settings: { classifiedSlots: 2 } }
+                        ] 
+                    });
+                };
+
+                const tournamentMatches = allMatches.filter(m => m.tournamentId === tournament.id);
+
+                return (
+                    <div className="animate-in fade-in duration-300">
+                        <ConfirmModal isOpen={isResetting} onClose={() => setIsResetting(false)} onConfirm={confirmReset} title="¿Reiniciar Temporada?" message="Se borrarán todos los partidos y clasificaciones." />
+                        
+                        <div className="flex justify-between items-center mb-8 border-b border-gray-200 pb-4">
+                            <h2 className="text-3xl font-bold text-[#0F2044] flex items-center gap-2"><img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-10 h-10 object-contain"/> {tournament.name}</h2>
+                            <div className="flex gap-2">
+                                <Button variant="secondary" onClick={() => setIsResetting(true)} className="text-[#EF4135] border-[#EF4135] hover:bg-red-50"><RotateCcw size={16}/> Reset</Button>
+                                <Button variant="danger" onClick={() => onDeleteTournament(tournament.id)}><Trash2 size={16}/></Button>
+                            </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {tournament.groups.map(group => {
+                                const standings = calculateStandings(group.id, group.teams, allTeams, tournamentMatches);
+                                const groupMatches = tournamentMatches.filter(m => m.groupId === group.id).reverse();
+                                const availableTeams = allTeams.filter(t => !group.teams.includes(t.id));
+                                const teamsInGroup = group.teams.map(id => allTeams.find(t => t.id === id)).filter(Boolean);
+
+                                return (
+                                    <Card key={group.id} className="p-0 border-t-0 overflow-hidden">
+                                        <div className="bg-[#0F2044] p-4 flex justify-between items-center">
+                                            <h3 className="text-white font-bold text-lg">{group.name}</h3>
+                                            <div className="text-[#C8AA6E] text-xs font-bold uppercase tracking-widest">Fase de Grupos</div>
+                                        </div>
+                                        <div className="p-4">
+                                            <div className="overflow-x-auto mb-6">
+                                                <table className="w-full text-sm">
+                                                    <thead className="bg-gray-50 text-[#0F2044]">
+                                                        <tr>
+                                                            <th className="px-2 py-2 text-left">Equipo</th>
+                                                            <th className="px-2 py-2 text-center">PJ</th>
+                                                            <th className="px-2 py-2 text-center">DG</th>
+                                                            <th className="px-2 py-2 text-center">Pts</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100">
+                                                        {standings.map((t, index) => (
+                                                            <tr key={t.id} className={index < 2 ? 'bg-[#FFFBEB]' : ''}>
+                                                                <td className="px-2 py-2 font-medium text-[#0F2044] flex items-center gap-2">
+                                                                    <span className="text-xs text-gray-400 w-4">{index+1}</span>
+                                                                    <img src={t.logo || `https://ui-avatars.com/api/?name=${t.name}`} className="w-5 h-5 object-contain" />
+                                                                    {t.name}
+                                                                </td>
+                                                                <td className="px-2 py-2 text-center text-gray-600">{t.P}</td>
+                                                                <td className="px-2 py-2 text-center text-gray-600">{t.GD}</td>
+                                                                <td className="px-2 py-2 text-center font-bold text-[#0F2044]">{t.Pts}</td>
+                                                            </tr>
+                                                        ))}
+                                                        {standings.length === 0 && <tr><td colSpan="4" className="text-center py-4 text-gray-400 text-xs">Sin equipos</td></tr>}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            <div className="flex gap-2 mb-6 bg-slate-50 p-2 rounded-lg">
+                                                <SmallSelect options={[{ value: '', label: 'Añadir equipo...' }, ...availableTeams.map(t => ({ value: t.id, label: t.name }))]} value={teamToAdd.groupId === group.id ? teamToAdd.teamId : ''} onChange={e => setTeamToAdd({ groupId: group.id, teamId: e.target.value })} />
+                                                <Button variant="secondary" onClick={() => handleAddTeamToGroup(group.id)} className="bg-white"><Plus size={16} /></Button>
+                                            </div>
+
+                                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                                <h4 className="text-xs font-bold text-[#0F2044] uppercase mb-2">Programar Partido</h4>
+                                                <div className="grid grid-cols-2 gap-2 mb-2">
+                                                    <SmallSelect options={[{ value: '', label: 'Local' }, ...teamsInGroup.map(t => ({ value: t.id, label: t.name }))]} value={matchForm.groupId === group.id ? matchForm.teamAId : ''} onChange={e => setMatchForm({...matchForm, groupId: group.id, teamAId: e.target.value})} />
+                                                    <SmallSelect options={[{ value: '', label: 'Visita' }, ...teamsInGroup.map(t => ({ value: t.id, label: t.name }))]} value={matchForm.groupId === group.id ? matchForm.teamBId : ''} onChange={e => setMatchForm({...matchForm, groupId: group.id, teamBId: e.target.value})} />
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <SmallInput type="datetime-local" value={matchForm.groupId === group.id ? matchForm.startTime : ''} onChange={e => setMatchForm({...matchForm, groupId: group.id, startTime: e.target.value})} />
+                                                    <Button onClick={handleScheduleMatch} disabled={matchForm.groupId !== group.id} className="bg-[#0F2044] text-[#C8AA6E]"><Calendar size={14}/></Button>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="mt-4 space-y-1">
+                                                {groupMatches.map(m => (
+                                                    <div key={m.id} className="text-xs p-2 bg-white border border-gray-100 rounded flex justify-between items-center">
+                                                        <span className="font-bold text-[#0F2044]">{teams.find(t=>t.id===m.teamAId)?.name}</span>
+                                                        <span className="bg-slate-100 px-2 py-0.5 rounded text-gray-600 font-mono">{m.status === 'scheduled' ? 'vs' : `${m.scoreA}-${m.scoreB}`}</span>
+                                                        <span className="font-bold text-[#0F2044]">{teams.find(t=>t.id===m.teamBId)?.name}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </Card>
+                                )
+                            })}
+                        </div>
+                    </div>
+                );
+            };
+
+            const DashboardView = () => (
+                <div className="space-y-6 animate-in fade-in duration-500">
+                <div className="relative rounded-2xl overflow-hidden bg-[#0F2044] p-10 shadow-xl text-white flex items-center justify-between border-b-4 border-[#C8AA6E]">
+                    <div>
+                        <div className="flex items-center gap-2 text-[#C8AA6E] font-bold uppercase tracking-widest text-sm mb-2">
+                            <Crown size={16} /> Temporada Oficial 2026
+                        </div>
+                        <h2 className="text-5xl font-black italic tracking-tighter">TOP 8 <span className="text-white bg-[#C8AA6E] px-2 text-[#0F2044] skew-x-[-10deg] inline-block transform">LEAGUE</span></h2>
+                    </div>
+                    <img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-32 h-32 object-contain drop-shadow-2xl" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card className="p-5 border-l-4 border-l-[#C8AA6E]"><div className="flex justify-between"><p className="text-gray-400 text-xs font-bold uppercase">Clubes</p><p className="text-3xl font-bold text-[#0F2044]">{teams.length}</p></div></Card>
+                    <Card className="p-5 border-l-4 border-l-[#0F2044]"><div className="flex justify-between"><p className="text-gray-400 text-xs font-bold uppercase">Partidos</p><p className="text-3xl font-bold text-[#0F2044]">{matches.length}</p></div></Card>
+                    <Card className="p-5 border-l-4 border-l-[#EF4135]"><div className="flex justify-between"><p className="text-gray-400 text-xs font-bold uppercase">En Vivo</p><p className="text-3xl font-bold text-[#0F2044]">{matches.filter(m => m.status === 'live').length}</p></div></Card>
+                </div>
+                </div>
+            );
+
+            const TeamsView = () => {
+                const [isEditing, setIsEditing] = useState(false);
+                const [formData, setFormData] = useState({ name: '', logo: '', probability: 0.5, style: 'balanced' });
+                const handleSubmit = async (e) => { 
+                    e.preventDefault(); 
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), { ...formData, roster: generateRoster(), createdAt: serverTimestamp() }); 
+                    setIsEditing(false); setFormData({ name: '', logo: '', probability: 0.5, style: 'balanced' });
+                };
+                return (
+                <div>
+                    <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold text-[#0F2044]">Clubes Top 8</h2><Button onClick={() => setIsEditing(!isEditing)}>{isEditing ? 'Cancelar' : <><Plus size={16} /> Nuevo Club</>}</Button></div>
+                    {isEditing && (
+                        <Card className="p-6 mb-6 bg-white shadow-lg"><form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <Input label="Nombre del Club" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="md:col-span-2" />
+                            <Input label="Logo URL" value={formData.logo} onChange={e => setFormData({...formData, logo: e.target.value})} />
+                            <div>
+                                <label className="text-[10px] uppercase tracking-widest text-[#0F2044] font-bold mb-1 block">Nivel: {Math.round(formData.probability*100)}</label>
+                                <input type="range" min="0.1" max="0.99" step="0.01" className="w-full accent-[#0F2044]" value={formData.probability} onChange={e => setFormData({...formData, probability: parseFloat(e.target.value)})} />
+                            </div>
+                            <Button type="submit" className="md:col-span-3 bg-[#0F2044] text-white">Registrar Club</Button>
+                        </form></Card>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{teams.map(t => (
+                        <div key={t.id} className="bg-white border-t-4 border-t-[#0F2044] p-4 rounded-xl shadow-sm flex flex-col items-center text-center gap-3 relative group hover:shadow-md transition-shadow">
+                            <button onClick={() => setDeleteTeamId(t.id)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"><Trash2 size={14}/></button>
+                            <img src={t.logo || `https://ui-avatars.com/api/?name=${t.name}&background=0F2044&color=C8AA6E`} className="w-16 h-16 object-contain rounded-full bg-gray-50 p-1" />
+                            <div>
+                                <div className="font-bold text-lg text-[#0F2044] leading-tight">{t.name}</div>
+                                <div className="text-[10px] text-[#C8AA6E] font-bold uppercase tracking-widest mt-1">Nivel {Math.round(t.probability*100)}</div>
+                            </div>
+                        </div>
+                    ))}</div>
+                </div>
+                );
+            };
+
+            if (!user) return <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center text-[#0F2044]"><div className="animate-spin text-[#C8AA6E] mb-4"><Activity size={32} /></div><div className="font-bold uppercase tracking-widest">Cargando Top 8...</div></div>;
+            
+            const navItems = [
+                { id: 'dashboard', icon: Crown, label: 'Inicio' },
+                { id: 'tournaments', icon: Trophy, label: 'Torneo' }, 
+                { id: 'teams', icon: Shield, label: 'Clubes' },
+                { id: 'matches', icon: Calendar, label: 'Partidos' }
+            ];
+
+            return (
+                <div className="min-h-screen bg-[#F8F9FA] text-[#0F2044] font-sans pb-20 md:pb-0 selection:bg-[#C8AA6E] selection:text-[#0F2044]">
+                <ConfirmModal isOpen={!!deleteTeamId} title="¿Eliminar Club?" message="Se borrará permanentemente." onClose={() => setDeleteTeamId(null)} onConfirm={async () => { if(user) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', deleteTeamId)); }} />
+                <ConfirmModal isOpen={!!deleteMatchId} title="¿Borrar Partido?" message="Se eliminará del historial." onClose={() => setDeleteMatchId(null)} onConfirm={async () => { if(user) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', deleteMatchId)); }} />
+                <ConfirmModal isOpen={!!deleteTournamentId} title="¿Eliminar Torneo?" message="Se borrará toda la estructura." onClose={() => setDeleteTournamentId(null)} onConfirm={async () => { if(user) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tournaments', deleteTournamentId)); }} />
+                <EditDateModal isOpen={!!editDateMatchId} currentDate={editDateCurrent} onClose={() => setEditDateMatchId(null)} onConfirm={handleUpdateMatchDate} />
+
+                {/* Sidebar Desktop */}
+                <div className="hidden md:flex fixed left-0 top-0 bottom-0 w-64 bg-[#0F2044] flex-col p-6 z-50 shadow-2xl border-r border-[#C8AA6E]">
+                    <div className="flex flex-col items-center mb-10 pb-6 border-b border-[#C8AA6E]/30">
+                    <img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-20 h-20 object-contain mb-4" />
+                    <h1 className="text-white font-black italic text-2xl tracking-tight">TOP 8 <span className="text-[#C8AA6E]">CUP</span></h1>
+                    </div>
+                    <nav className="space-y-2 flex-1">
+                    {navItems.map(item => (
+                        <button key={item.id} onClick={() => { setView(item.id); setSelectedMatchId(null); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-sm font-bold uppercase tracking-wide ${view === item.id ? 'bg-[#C8AA6E] text-[#0F2044] shadow-md' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
+                        <item.icon size={18} /> {item.label}
+                        </button>
+                    ))}
+                    </nav>
+                </div>
+                
+                {/* Mobile Header */}
+                <div className="md:hidden bg-[#0F2044] p-4 flex justify-between items-center sticky top-0 z-40 shadow-md border-b border-[#C8AA6E]">
+                    <div className="flex items-center gap-2 text-white font-black italic"><img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-8 h-8 object-contain"/> TOP 8</div>
+                    <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="text-[#C8AA6E]">{mobileMenuOpen ? <X /> : <Menu />}</button>
+                </div>
+                
+                {mobileMenuOpen && (
+                    <div className="md:hidden fixed inset-0 bg-[#0F2044]/95 z-50 flex flex-col items-center justify-center gap-8 backdrop-blur-md">
+                        <button onClick={() => setMobileMenuOpen(false)} className="absolute top-4 right-4 text-white"><X size={32} /></button>
+                        {navItems.map(item => (
+                            <button key={item.id} onClick={() => { setView(item.id); setSelectedMatchId(null); setMobileMenuOpen(false); }} className="text-2xl font-bold text-white uppercase tracking-widest hover:text-[#C8AA6E]">{item.label}</button>
+                        ))}
+                    </div>
+                )}
+                
+                <main className="md:pl-64 p-4 md:p-8 max-w-6xl mx-auto">
+                    {selectedMatchId ? <MatchDetail match={matches.find(m => m.id === selectedMatchId)} onBack={() => setSelectedMatchId(null)} /> : (
+                        <>
+                        {view === 'dashboard' && <DashboardView />}
+                        {view === 'teams' && <TeamsView />}
+                        {view === 'matches' && (
+                            <div>
+                                <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold text-[#0F2044]">Partidos Recientes</h2></div>
+                                <div className="grid gap-3">{matches.map(m => <MatchCard key={m.id} match={m} onClick={() => setSelectedMatchId(m.id)} onDelete={(id) => setDeleteMatchId(id)} onEditDate={(id, date) => { setEditDateMatchId(id); setEditDateCurrent(date); }} />)}</div>
+                            </div>
+                        )}
+                        {view === 'tournaments' && <TournamentsView tournaments={tournaments} allTeams={teams} allMatches={matches} user={user} onDeleteClick={(id) => setDeleteTournamentId(id)} />}
+                        </>
+                    )}
+                </main>
+                </div>
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
