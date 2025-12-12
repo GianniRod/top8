@@ -17,7 +17,6 @@
             "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
             "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
             "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js",
-            "firebase/analytics": "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js",
             "lucide-react": "https://esm.sh/lucide-react@0.344.0"
         }
     }
@@ -46,11 +45,11 @@
         import React, { useState, useEffect, useMemo } from 'react';
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
-        import { getAnalytics } from "firebase/analytics";
         import { 
             getAuth, 
             signInAnonymously, 
-            onAuthStateChanged
+            onAuthStateChanged,
+            signInWithCustomToken
         } from 'firebase/auth';
         import { 
             getFirestore, 
@@ -74,25 +73,13 @@
             ArrowLeft, Edit, Eye, Pencil, TrendingUp, RotateCcw
         } from 'lucide-react';
 
-        // --- TU CONFIGURACIÓN DE FIREBASE ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyB4pExqScseOpAjD6KDMqislfx1XHO96hw",
-            authDomain: "top-8-9b59a.firebaseapp.com",
-            projectId: "top-8-9b59a",
-            storageBucket: "top-8-9b59a.firebasestorage.app",
-            messagingSenderId: "232682268166",
-            appId: "1:232682268166:web:420cbceb6072054615c587",
-            measurementId: "G-DQYCFPS9XH"
-        };
+        // --- CONFIGURACIÓN AUTOMÁTICA DEL ENTORNO ---
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-        // --- INICIALIZACIÓN ---
         const app = initializeApp(firebaseConfig);
-        const analytics = getAnalytics(app); // Analytics inicializado
         const auth = getAuth(app);
         const db = getFirestore(app);
-
-        // Usamos un ID fijo para la colección en tu BD
-        const appId = 'top-8-main-data';
 
         // --- CONSTANTES DE DISEÑO (TOP 8) ---
         // Azul Navy: #0F2044 | Dorado: #C8AA6E | Blanco: #FFFFFF
@@ -366,14 +353,16 @@
             // --- AUTENTICACIÓN SEGURA Y AUTOMÁTICA ---
             useEffect(() => {
                 const initAuth = async () => {
-                    // Solo usamos autenticación anónima para conectar a tu BD
-                    // Asegúrate de habilitar "Anonymous" en Firebase Authentication
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     try {
-                        await signInAnonymously(auth);
-                    } catch (error) {
-                        console.error("Error de autenticación:", error);
-                        // Si falla, podrías intentar otro método, pero por ahora solo logueamos
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                    } catch (e) {
+                    console.error("Token error, falling back to anon", e);
+                    await signInAnonymously(auth);
                     }
+                } else {
+                    await signInAnonymously(auth);
+                }
                 };
                 initAuth();
                 const unsubscribe = onAuthStateChanged(auth, setUser);
