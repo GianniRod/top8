@@ -75,10 +75,11 @@
         import { 
             Trophy, Users, Calendar, Play, Plus, Trash2, Activity, Clock, Crown,
             Timer, Shield, Menu, X, AlertTriangle, Check, CheckSquare, Trello, 
-            ArrowLeft, Edit, Eye, Pencil, TrendingUp, RotateCcw, Save, Cloud, Wifi
+            ArrowLeft, Edit, Eye, Pencil, TrendingUp, RotateCcw, Save, Cloud, Wifi,
+            AlertCircle
         } from 'lucide-react';
 
-        // --- 1. TU CONFIGURACIÓN DE FIREBASE ---
+        // --- 1. CONFIGURACIÓN DE FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyB4pExqScseOpAjD6KDMqislfx1XHO96hw",
             authDomain: "top-8-9b59a.firebaseapp.com",
@@ -89,15 +90,14 @@
             measurementId: "G-DQYCFPS9XH"
         };
 
-        // --- INICIALIZACIÓN DE FIREBASE ---
+        // --- INICIALIZACIÓN ---
         const app = initializeApp(firebaseConfig);
         const analytics = getAnalytics(app);
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // --- 2. ID GLOBAL DE LA BASE DE DATOS ---
-        // IMPORTANTE: Al dejar este ID fijo, todos los dispositivos que usen este código
-        // leerán y escribirán en el mismo lugar. ¡No lo cambies si quieres mantener tus datos!
+        // --- ID GLOBAL DE LA BASE DE DATOS ---
+        // Este ID asegura que todos los dispositivos lean los mismos datos
         const appId = 'top-8-main-data';
 
         // --- UTILIDADES ---
@@ -329,6 +329,7 @@
 
         function App() {
             const [user, setUser] = useState(null);
+            const [errorMsg, setErrorMsg] = useState(null);
             const [view, setView] = useState('dashboard'); 
             const [teams, setTeams] = useState([]);
             const [matches, setMatches] = useState([]);
@@ -343,36 +344,56 @@
             const [editDateCurrent, setEditDateCurrent] = useState('');
             const [resetTournamentId, setResetTournamentId] = useState(null);
 
-            // --- 3. CONEXIÓN PERSISTENTE ---
+            // --- AUTENTICACIÓN ---
             useEffect(() => {
                 const initAuth = async () => {
                     try {
-                        // Usamos autenticación anónima para identificar la sesión,
-                        // pero la base de datos es GLOBAL (pública para este AppID)
                         await signInAnonymously(auth);
                     } catch (error) {
-                        console.error("Error conectando a la base de datos:", error);
+                        console.error("Error de autenticación:", error);
+                        setErrorMsg("Error de Autenticación. Verifica tu conexión.");
                     }
                 };
                 initAuth();
-                const unsubscribe = onAuthStateChanged(auth, setUser);
+                const unsubscribe = onAuthStateChanged(auth, (u) => {
+                    setUser(u);
+                    if (u) setErrorMsg(null);
+                });
                 return () => unsubscribe();
             }, []);
 
-            // --- CARGA DE DATOS EN TIEMPO REAL ---
+            // --- CARGA DE DATOS ---
             useEffect(() => {
                 if (!user) return;
                 
-                // Estas rutas apuntan al espacio "Público" de la base de datos.
-                // Esto permite que todos los dispositivos vean lo mismo.
                 const teamsPath = collection(db, 'artifacts', appId, 'public', 'data', 'teams');
                 const matchesPath = collection(db, 'artifacts', appId, 'public', 'data', 'matches');
                 const tournamentsPath = collection(db, 'artifacts', appId, 'public', 'data', 'tournaments');
 
-                // onSnapshot escucha cambios en vivo. Si alguien edita en otro PC, aquí se actualiza solo.
-                const unsubTeams = onSnapshot(query(teamsPath, orderBy('name')), (snap) => setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-                const unsubMatches = onSnapshot(query(matchesPath, orderBy('startTime', 'desc')), (snap) => setMatches(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-                const unsubTournaments = onSnapshot(query(tournamentsPath, orderBy('createdAt', 'desc')), (snap) => setTournaments(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                // Helper para manejar errores de permisos
+                const handleError = (err) => {
+                    console.error("Error de Base de Datos:", err);
+                    if (err.code === 'permission-denied') {
+                        setErrorMsg("⚠️ SIN PERMISO DE ACCESO: Configura las Reglas de Firestore para permitir acceso público.");
+                    } else {
+                        setErrorMsg(`Error de conexión: ${err.message}`);
+                    }
+                };
+
+                const unsubTeams = onSnapshot(query(teamsPath, orderBy('name')), 
+                    (snap) => setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+                    handleError
+                );
+                
+                const unsubMatches = onSnapshot(query(matchesPath, orderBy('startTime', 'desc')), 
+                    (snap) => setMatches(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    handleError
+                );
+                
+                const unsubTournaments = onSnapshot(query(tournamentsPath, orderBy('createdAt', 'desc')), 
+                    (snap) => setTournaments(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    handleError
+                );
                 
                 return () => { unsubTeams(); unsubMatches(); unsubTournaments(); }; 
             }, [user]); 
@@ -696,7 +717,7 @@
 
                 return (
                     <div className="flex flex-col items-center justify-center h-[500px]">
-                        <img src="https://images-ext-1.discordapp.net/external/Bz2M9Tccyf5eEKfs1sAKkSt7wUrv0q3zcaqy48ZN3ac/https/i.postimg.cc/KvRBkkgX/IMG-6015.png?format=webp&quality=lossless&width=782&height=782" className="w-32 h-32 object-contain mb-6 opacity-80" />
+                        <img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-32 h-32 object-contain mb-6 opacity-80" />
                         <h2 className="text-3xl font-bold text-[#0F2044] mb-2">Top 8 League</h2>
                         <p className="text-gray-500 mb-6 text-center max-w-md">No hay torneo activo. Inicializa la estructura oficial.</p>
                         <Button onClick={handleCreateTop8Cup} className="text-lg px-8 py-3 bg-[#0F2044] text-[#C8AA6E] hover:bg-[#0A1630]">
@@ -762,7 +783,7 @@
                         <ConfirmModal isOpen={isResetting} onClose={() => setIsResetting(false)} onConfirm={confirmReset} title="¿Reiniciar Temporada?" message="Se borrarán todos los partidos y clasificaciones." />
                         
                         <div className="flex justify-between items-center mb-8 border-b border-gray-200 pb-4">
-                            <h2 className="text-3xl font-bold text-[#0F2044] flex items-center gap-2"><img src="https://images-ext-1.discordapp.net/external/Bz2M9Tccyf5eEKfs1sAKkSt7wUrv0q3zcaqy48ZN3ac/https/i.postimg.cc/KvRBkkgX/IMG-6015.png?format=webp&quality=lossless&width=782&height=782" className="w-10 h-10 object-contain"/> {tournament.name}</h2>
+                            <h2 className="text-3xl font-bold text-[#0F2044] flex items-center gap-2"><img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-10 h-10 object-contain"/> {tournament.name}</h2>
                             <div className="flex gap-2">
                                 <Button variant="secondary" onClick={() => setIsResetting(true)} className="text-[#EF4135] border-[#EF4135] hover:bg-red-50"><RotateCcw size={16}/> Reset</Button>
                                 <Button variant="danger" onClick={() => onDeleteTournament(tournament.id)}><Trash2 size={16}/></Button>
@@ -856,14 +877,31 @@
                         <h2 className="text-5xl font-black italic tracking-tighter">TOP 8 <span className="text-white bg-[#C8AA6E] px-2 text-[#0F2044] skew-x-[-10deg] inline-block transform">LEAGUE</span></h2>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                         <img src="https://images-ext-1.discordapp.net/external/Bz2M9Tccyf5eEKfs1sAKkSt7wUrv0q3zcaqy48ZN3ac/https/i.postimg.cc/KvRBkkgX/IMG-6015.png?format=webp&quality=lossless&width=782&height=782" className="w-32 h-32 object-contain drop-shadow-2xl" />
+                         <img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-32 h-32 object-contain drop-shadow-2xl" />
                          {/* Indicador de conexión persistente */}
-                         <div className="flex items-center gap-2 bg-black/20 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10">
-                            <div className="w-2 h-2 rounded-full bg-green-400 ping"></div>
-                            <span className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-1"><Cloud size={12}/> Sincronizado</span>
+                         <div className={`flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 ${errorMsg ? 'bg-red-500/80' : 'bg-black/20 backdrop-blur-sm'}`}>
+                            {errorMsg ? <AlertCircle size={12} className="text-white"/> : <div className="w-2 h-2 rounded-full bg-green-400 ping"></div>}
+                            <span className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-1">
+                                {errorMsg ? 'ERROR DE CONEXIÓN' : <><Cloud size={12}/> Sincronizado</>}
+                            </span>
                          </div>
                     </div>
                 </div>
+                
+                {/* Mensaje de Error Visible si no hay permisos */}
+                {errorMsg && (
+                    <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r shadow-md animate-pulse">
+                        <div className="flex items-center gap-2 text-red-700 font-bold mb-1">
+                            <AlertTriangle size={20}/> Problema de Configuración
+                        </div>
+                        <p className="text-sm text-red-600">{errorMsg}</p>
+                        <p className="text-xs text-red-500 mt-2 font-mono bg-red-100 p-2 rounded">
+                            Ve a Firebase Console -> Firestore -> Reglas y pega: <br/>
+                            <code>allow read, write: if true;</code>
+                        </p>
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Card className="p-5 border-l-4 border-l-[#C8AA6E]"><div className="flex justify-between"><p className="text-gray-400 text-xs font-bold uppercase">Clubes</p><p className="text-3xl font-bold text-[#0F2044]">{teams.length}</p></div></Card>
                     <Card className="p-5 border-l-4 border-l-[#0F2044]"><div className="flex justify-between"><p className="text-gray-400 text-xs font-bold uppercase">Partidos</p><p className="text-3xl font-bold text-[#0F2044]">{matches.length}</p></div></Card>
@@ -914,7 +952,7 @@
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{teams.map(t => (
                         <div key={t.id} className="bg-white border-t-4 border-t-[#0F2044] p-4 rounded-xl shadow-sm flex flex-col items-center text-center gap-3 relative group hover:shadow-md transition-shadow">
                             <button onClick={() => setDeleteTeamId(t.id)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"><Trash2 size={14}/></button>
-                            {/* LOGO SIN FONDO REDONDO - AJUSTE SOLICITADO */}
+                            {/* LOGO SIN FONDO REDONDO */}
                             <img src={t.logo || `https://ui-avatars.com/api/?name=${t.name}&background=0F2044&color=C8AA6E`} className="w-24 h-24 object-contain" />
                             <div>
                                 <div className="font-bold text-lg text-[#0F2044] leading-tight">{t.name}</div>
@@ -955,6 +993,7 @@
                             <Button onClick={() => setIsCreating(!isCreating)} className="bg-[#0F2044] text-[#C8AA6E]">{isCreating ? 'Cancelar' : <><Plus size={16}/> Crear Partido</>}</Button>
                         </div>
                         
+                        {/* Formulario de Creación de Partidos */}
                         {isCreating && (
                             <Card className="p-6 mb-6 animate-in fade-in slide-in-from-top-4">
                                 <h3 className="text-lg font-bold text-[#0F2044] mb-4">Nuevo Partido Manual</h3>
@@ -999,7 +1038,7 @@
                 {/* Sidebar Desktop */}
                 <div className="hidden md:flex fixed left-0 top-0 bottom-0 w-64 bg-[#0F2044] flex-col p-6 z-50 shadow-2xl border-r border-[#C8AA6E]">
                     <div className="flex flex-col items-center mb-10 pb-6 border-b border-[#C8AA6E]/30">
-                    <img src="https://images-ext-1.discordapp.net/external/Bz2M9Tccyf5eEKfs1sAKkSt7wUrv0q3zcaqy48ZN3ac/https/i.postimg.cc/KvRBkkgX/IMG-6015.png?format=webp&quality=lossless&width=782&height=782" className="w-20 h-20 object-contain mb-4" />
+                    <img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-20 h-20 object-contain mb-4" />
                     <h1 className="text-white font-black italic text-2xl tracking-tight">TOP 8 <span className="text-[#C8AA6E]">CUP</span></h1>
                     </div>
                     <nav className="space-y-2 flex-1">
@@ -1013,7 +1052,7 @@
                 
                 {/* Mobile Header */}
                 <div className="md:hidden bg-[#0F2044] p-4 flex justify-between items-center sticky top-0 z-40 shadow-md border-b border-[#C8AA6E]">
-                    <div className="flex items-center gap-2 text-white font-black italic"><https://images-ext-1.discordapp.net/external/Bz2M9Tccyf5eEKfs1sAKkSt7wUrv0q3zcaqy48ZN3ac/https/i.postimg.cc/KvRBkkgX/IMG-6015.png?format=webp&quality=lossless&width=782&height=782" className="w-8 h-8 object-contain"/> TOP 8</div>
+                    <div className="flex items-center gap-2 text-white font-black italic"><img src="https://i.postimg.cc/T1xy0cy4/IMG-4967.png" className="w-8 h-8 object-contain"/> TOP 8</div>
                     <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="text-[#C8AA6E]">{mobileMenuOpen ? <X /> : <Menu />}</button>
                 </div>
                 
@@ -1031,6 +1070,7 @@
                         <>
                         {view === 'dashboard' && <DashboardView />}
                         {view === 'teams' && <TeamsView />}
+                        {/* Ahora usamos MatchesView en lugar de pintar directamente */}
                         {view === 'matches' && <MatchesView />}
                         {view === 'tournaments' && <TournamentsView tournaments={tournaments} allTeams={teams} allMatches={matches} user={user} onDeleteClick={(id) => setDeleteTournamentId(id)} />}
                         </>
