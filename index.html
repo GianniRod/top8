@@ -74,7 +74,7 @@
             ArrowLeft, Edit, Eye, Pencil, TrendingUp, RotateCcw, Save
         } from 'lucide-react';
 
-        // --- CONFIGURACIÓN DE FIREBASE ACTUALIZADA ---
+        // --- CONFIGURACIÓN DE FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyB4pExqScseOpAjD6KDMqislfx1XHO96hw",
             authDomain: "top-8-9b59a.firebaseapp.com",
@@ -91,7 +91,6 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // ID fijo para la colección (asegura que los datos se guarden en una ruta consistente)
         const appId = 'top-8-main-data';
 
         // --- UTILIDADES ---
@@ -124,7 +123,7 @@
             });
         };
 
-        // Simulación básica de probabilidades
+        // Simulación básica
         const simulateQuickMatch = (probA, probB, startMinute = 0, currentScoreA = 0, currentScoreB = 0) => {
             let sA = currentScoreA;
             let sB = currentScoreB;
@@ -899,7 +898,7 @@
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{teams.map(t => (
                         <div key={t.id} className="bg-white border-t-4 border-t-[#0F2044] p-4 rounded-xl shadow-sm flex flex-col items-center text-center gap-3 relative group hover:shadow-md transition-shadow">
                             <button onClick={() => setDeleteTeamId(t.id)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"><Trash2 size={14}/></button>
-                            <img src={t.logo || `https://ui-avatars.com/api/?name=${t.name}&background=0F2044&color=C8AA6E`} className="w-16 h-16 object-contain rounded-full bg-gray-50 p-1" />
+                            <img src={t.logo || `https://ui-avatars.com/api/?name=${t.name}&background=0F2044&color=C8AA6E`} className="w-24 h-24 object-contain" />
                             <div>
                                 <div className="font-bold text-lg text-[#0F2044] leading-tight">{t.name}</div>
                                 {/* Muestra la Sigla si existe */}
@@ -1033,4 +1032,4 @@
 
     </script>
 </body>
-</html>s
+</html>
